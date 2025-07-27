@@ -2,7 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {console} from "forge-std/console.sol";
+
 /*
 * @title RebaseToken
 * @author Ciara Nightingale
@@ -10,26 +13,31 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 * @notice The interest rate in the smart contract can only decrease 
 * @notice Each will user will have their own interest rate that is the global interest rate at the time of depositing.
 */
-contract RebaseToken is ERC20, Ownable {
+contract RebaseToken is ERC20, Ownable, AccessControl {
     error RebaseToken_canOnlyDecreaseTheRate(uint256 oldinterestRate, uint256 newInterestRate);
 
     mapping(address => uint256) private s_usersInterestRate;
     mapping(address => uint256) private s_userLastTimeUpdatedTimeStamp;
 
+    bytes32 private constant MINT_BURN_AND_ROLE = keccak256("MINT_BURN_AND_ROLE");
     uint256 private constant PRECISION_FACTOR = 1e18;
-    uint256 private s_interestRate = 5e10;
+    uint256 private s_interestRate = (5 * PRECISION_FACTOR) / 1e8;
 
     event InterestChanged(uint256 newInteresetRate);
 
     constructor() ERC20("RebaseToken", "RBT") Ownable(msg.sender) {}
+
+    function grantMintAndBurnRole(address _account) external onlyOwner {
+        _grantRole(MINT_BURN_AND_ROLE, _account);
+    }
 
     /**
      * @notice Set the interest rate in the contract
      * @param _newInterestRate The new interest rate to set
      * @dev The interest rate can only decrease
      */
-    function setInterestRate(uint256 _newInterestRate) external {
-        if (_newInterestRate < s_interestRate) {
+    function setInterestRate(uint256 _newInterestRate) external onlyOwner {
+        if (_newInterestRate > s_interestRate) {
             revert RebaseToken_canOnlyDecreaseTheRate(s_interestRate, _newInterestRate);
         }
         s_interestRate = _newInterestRate;
@@ -42,9 +50,9 @@ contract RebaseToken is ERC20, Ownable {
      * @param amount The number of tokens to mint.
      * @dev this function increases the total supply.
      */
-    function mint(address _to, uint256 amount) external {
+    function mint(address _to, uint256 amount, uint256 _interestRate) external onlyRole(MINT_BURN_AND_ROLE) {
         _mintAccruedInterest(_to);
-        s_usersInterestRate[_to] = s_interestRate;
+        s_usersInterestRate[_to] = _interestRate;
         _mint(_to, amount);
     }
 
@@ -54,11 +62,9 @@ contract RebaseToken is ERC20, Ownable {
     * @param _value The number of tokens to be burned
     * @dev this function decreases the total supply.
     */
-    function burn(address from, uint256 amount) external {
-        if (amount == type(uint256).max) {
-            amount == balanceOf(from);
-        }
+    function burn(address from, uint256 amount) external onlyRole(MINT_BURN_AND_ROLE) {
         _mintAccruedInterest(from);
+        console.log("yeah burn");
         _burn(from, amount);
     }
 
@@ -71,18 +77,17 @@ contract RebaseToken is ERC20, Ownable {
         return s_usersInterestRate[user];
     }
 
-	function getGlobslInterstRate() external view returns(uint256){
-		return s_interestRate;
-	}
+    function getGlobslInterstRate() external view returns (uint256) {
+        return s_interestRate;
+    }
 
-	/**
-	 * @notice returns the Principal Balance 
-	 * @param f_user user adddress
-	 */
-	function PrincipalBalanceO(address f_user) external view  returns (uint256){
-		return super.balanceOf(f_user);
-	}
-
+    /**
+     * @notice returns the Principal Balance
+     * @param f_user user adddress
+     */
+    function PrincipalBalanceO(address f_user) external view returns (uint256) {
+        return super.balanceOf(f_user);
+    }
 
     /**
      * @dev calculates the balance of the user, which is the
@@ -92,7 +97,11 @@ contract RebaseToken is ERC20, Ownable {
      *
      */
     function balanceOf(address _user) public view override returns (uint256) {
-        return super.balanceOf(_user) * _calculateUsersAccumulatedInterestSinceLastUpdate(_user) / PRECISION_FACTOR;
+        uint256 currentPrincipal = super.balanceOf(_user);
+        if (currentPrincipal == 0) {
+            return 0;
+        }
+        return (currentPrincipal * _calculateUsersAccumulatedInterestSinceLastUpdate(_user)) / PRECISION_FACTOR;
     }
 
     /**
@@ -110,10 +119,8 @@ contract RebaseToken is ERC20, Ownable {
         if (balanceOf(reciepent) == 0) {
             s_usersInterestRate[reciepent] = s_usersInterestRate[msg.sender];
         }
-		return super.transfer(reciepent,amount);
+        return super.transfer(reciepent, amount);
     }
-
-
 
     /**
      * @dev trnsfers tokens from the sender to the recipient. This function also mints any accrued interest since the last time the user's balance was updated.
@@ -131,7 +138,7 @@ contract RebaseToken is ERC20, Ownable {
         if (balanceOf(reciepent) == 0) {
             s_usersInterestRate[reciepent] = s_usersInterestRate[msg.sender];
         }
-		return super.transferFrom(from, reciepent, amount);
+        return super.transferFrom(from, reciepent, amount);
     }
 
     /**
@@ -146,9 +153,8 @@ contract RebaseToken is ERC20, Ownable {
 
         uint256 IncreasedBalance = CurrentBalance - previousBAlance;
 
-        s_userLastTimeUpdatedTimeStamp[_user] = block.timestamp;
-
         _mint(_user, IncreasedBalance);
+        s_userLastTimeUpdatedTimeStamp[_user] = block.timestamp;
     }
 
     /**
@@ -161,7 +167,7 @@ contract RebaseToken is ERC20, Ownable {
         view
         returns (uint256 linearInterst)
     {
-        uint256 timeLapseDifferrence = s_userLastTimeUpdatedTimeStamp[_user] - block.timestamp;
+        uint256 timeLapseDifferrence = block.timestamp - s_userLastTimeUpdatedTimeStamp[_user];
         linearInterst = PRECISION_FACTOR + (timeLapseDifferrence * s_usersInterestRate[_user]); // 1e18 + ( time * rate)
     }
 }
