@@ -2,9 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {TokenPool} from "lib/ccip/contracts/src/v0.8/ccip/pools/TokenPool.sol";
+import {console} from "forge-std/Test.sol";
 import {Pool} from "lib/ccip/contracts/src/v0.8/ccip/libraries/Pool.sol";
 import {IERC20} from "lib/ccip/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
 import {IRebaseToken} from "./interaction/IRebaseToken.sol";
+import {CCIPLocalSimulatorFork, Register} from "lib/chainlink-local/src/ccip/CCIPLocalSimulatorFork.sol";
 
 contract RebaseTokenPool is TokenPool {
     constructor(IERC20 _token, address[] memory _allowlist, address _rmnProxy, address _router)
@@ -29,8 +31,13 @@ contract RebaseTokenPool is TokenPool {
         returns (Pool.ReleaseOrMintOutV1 memory)
     {
         _validateReleaseOrMint(releaseOrMintIn);
-        uint256 userIntersetRate = abi.decode(releaseOrMintIn.sourcePoolData, (uint256));
-        IRebaseToken(address(i_token)).mint(releaseOrMintIn.receiver, releaseOrMintIn.amount, userIntersetRate);
+        address receiver = releaseOrMintIn.receiver;
+        console.log("succesfully validated");
+
+        (uint256 userIntersetRate) = abi.decode(releaseOrMintIn.sourcePoolData, (uint256));
+        console.log("succesfully taken intrerest", userIntersetRate);
+        IRebaseToken(address(i_token)).mint(receiver, releaseOrMintIn.amount, userIntersetRate);
+        console.log("succesfully minted");
         return Pool.ReleaseOrMintOutV1({destinationAmount: releaseOrMintIn.amount});
     }
 }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {RebaseToken} from "../src/RebaseToken.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+
 import {IRebaseToken} from "../src/interaction/IRebaseToken.sol";
 import {Vault} from "../src/vault.sol";
 import {Test, console} from "lib/forge-std/src/Test.sol";
@@ -26,6 +27,7 @@ contract RebaseTokenTest is Test {
 
     function addrewardsTovault(uint256 amountToadd) public {
         (bool success,) = payable(address(vault)).call{value: amountToadd}("");
+        success = true;
     }
 
     function testDepositLinear(uint256 amount) public {
